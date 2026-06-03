@@ -170,7 +170,7 @@ if not OPENAI_KEY:
 
 MODEL_NAME          = "gpt-4o-mini"
 DAILY_QUOTA         = 1500
-MAX_SESSION_HISTORY = 20
+MAX_SESSION_HISTORY = 6
 CONVERSATION_TTL    = 90
 AFK_MIN, AFK_MAX    = 300, 1200
 
@@ -178,7 +178,7 @@ AFK_MIN, AFK_MAX    = 300, 1200
 # lui donner du contexte. ATTENTION : ça tend à AMPLIFIER ses tics — il voit
 # son « ah… » précédent et le réenchaîne. Mettre False pour casser cette boucle
 # et juger le style sans auto-renforcement.
-INJECTER_DERNIER_MESSAGE = False
+INJECTER_DERNIER_MESSAGE = True
 
 # --- Protection anti-spam (par utilisateur) ---
 # Empêche un utilisateur de vider le quota API en pingant en boucle.
@@ -508,9 +508,21 @@ def extract_topic(text: str) -> str:
 
 
 def check_tedium(channel_id: int, text: str) -> bool:
-    topic = extract_topic(text)
-    state.topic_counter[channel_id][topic] += 1
-    return state.topic_counter[channel_id][topic] >= 3
+    # On tourne en rond ? On compte les mots forts (>4 lettres) qui reviennent
+    # dans le salon. Si l'un d'eux apparaît 3 fois, c'est qu'un sujet colle aux
+    # basques — on le signalera au bot pour qu'il en change.
+    mots = {
+        re.sub(r"[^0-9a-zàâçéèêëîïôûùüÿñæœ-]", "", w.lower())
+        for w in text.split() if len(w) > 4
+    }
+    tedious = False
+    for w in mots:
+        if not w:
+            continue
+        state.topic_counter[channel_id][w] += 1
+        if state.topic_counter[channel_id][w] >= 3:
+            tedious = True
+    return tedious
 
 
 def pick_word_count() -> int:
@@ -554,18 +566,9 @@ def build_user_prompt(
     edit_context: bool,
     before_edit: str | None,
 ) -> str:
-    history = list(state.individual_memory[author_name])
-    memory_note = ""
-    # N'injecter la mémoire que si elle contient quelque chose de précis et utile
-    if len(history) >= 2:
-        memory_note = (
-            f"\n[archives : {author_name} a dit auparavant — "
-            f"{' / '.join(history[:-1])}.]"
-        )
-
     tedium_note = (
-        "\n[ce sujet revient pour la troisième fois. relance-le sous un nouvel "
-        "angle, ou improvise une dégustation dessus.]"
+        "\n[on tourne en rond sur le même sujet. lâche-le complètement et "
+        "pars sur un truc qui n'a rien à voir.]"
         if is_tedious else ""
     )
 
@@ -582,7 +585,7 @@ def build_user_prompt(
         f"[bruit de fond — {build_context_note()}]\n\n"
         f"[message direct]\n"
         f"{author_name} dans {location} : \"{text}\""
-        f"{tedium_note}{memory_note}{edit_note}"
+        f"{tedium_note}{edit_note}"
     )
 
 
