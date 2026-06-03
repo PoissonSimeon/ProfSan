@@ -174,6 +174,12 @@ MAX_SESSION_HISTORY = 20
 CONVERSATION_TTL    = 90
 AFK_MIN, AFK_MAX    = 300, 1200
 
+# Réinjecter à chaque tour la dernière réplique du bot (rôle assistant) pour
+# lui donner du contexte. ATTENTION : ça tend à AMPLIFIER ses tics — il voit
+# son « ah… » précédent et le réenchaîne. Mettre False pour casser cette boucle
+# et juger le style sans auto-renforcement.
+INJECTER_DERNIER_MESSAGE = True
+
 # --- Protection anti-spam (par utilisateur) ---
 # Empêche un utilisateur de vider le quota API en pingant en boucle.
 # Les MP sont plus stricts que les serveurs (cible privilégiée du spam).
@@ -218,22 +224,20 @@ FILE_QUOTA    = MEMORY_DIR / "quota.json"
 # ══════════════════════════════════════════════════════════════════════
 # 3.  SYSTEM PROMPT
 #
-#     Leçon des logs : dès qu'on liste des techniques (« finis en
-#     MAJUSCULES », « balance un objet », « fais une comparaison »), le
-#     modèle trouve UN gabarit qui coche toutes les cases et le répète à
-#     chaque message — c'est ça, le pattern qui trahit l'IA. Une liste de
-#     procédés ne crée pas de variété, un PERSONNAGE oui (c'est pour ça
-#     qu'AM marche). On décrit donc un personnage : son esprit, son aplomb,
-#     sa façon de parler — et on s'arrête là. Pas de procédés à cocher.
-#     L'humour grivois est posé comme un TRAIT (esprit mal tourné qui dérape
-#     par la bande), pas comme une liste de mots crus : sinon le modèle les
-#     répète en boucle et devient frontal au lieu de rester suggestif.
+#     Les mots « professeur / savant / science / explique » déclenchent chez
+#     gpt-4o-mini sa caricature par défaut du prof rigolo (« ah, c'est
+#     fascinant ! c'est comme X et Y ! ») — un pattern dont on n'arrive pas à
+#     le sortir tant qu'on l'évoque. On vise donc l'autre registre, celui de
+#     la vraie discussion de référence : un mec blasé qui lâche une vanne
+#     courte, crade et absurde, du tac au tac. Pas d'explication, pas
+#     d'enthousiasme. L'humour grivois et l'emballement soudain sont des
+#     TRAITS, pas des procédés à cocher. Court, sec, perso à habiter.
 # ══════════════════════════════════════════════════════════════════════
 
 SYSTEM_INSTRUCTION = """
-Tu es le Professeur Sandale, un savant pour rire sur un serveur Discord. Tu te prends pour un éminent professeur et tu réponds à tout avec un aplomb imperturbable — sauf que ce que tu racontes part complètement en vrille et n'a aucun sens. Dans ta tête tout est limpide et scientifique ; pour les autres, c'est du délire pur. Et tu as l'esprit sacrément mal tourné : tes grandes démonstrations savantes dérapent tout le temps vers le graveleux et le cul, mais par la bande — sous-entendus, doubles sens, mots tordus et allusions grivoises plutôt que du frontal.
+Tu es le Professeur Sandale, un personnage barré d'un serveur Discord. Tu réponds à tout par une vanne courte et absurde, lâchée du tac au tac, l'air blasé, comme si ce que tu dis tombait sous le sens. T'as l'esprit bien mal tourné : ça part vite vers le sexe et le graveleux, mais en loucedé — sous-entendus, doubles sens, mots tordus. Tu causes en argot et en verlan à moitié inventé, et de temps en temps tu t'emballes d'un coup pour un rien.
 
-Tu écris relâché, en minuscules, comme un texto, en mêlant le jargon du savant et l'argot du quartier, et tu soudes parfois tes mots (« la science » devient « lascience »). Tu réponds court, et tu restes ce personnage quoi qu'il arrive.
+Tu écris comme un texto, en minuscules, court et sec. Tu soudes parfois tes mots (« la science » devient « lascience »). Tu restes ce perso quoi qu'il arrive.
 """
 
 
@@ -664,11 +668,10 @@ async def generate_response(
     session_snapshot = list(state.get_session(channel_id))
 
     # Contexte : on rappelle au bot SA propre dernière réplique dans ce salon,
-    # et seulement elle (jamais tout son historique, pour éviter qu'il tourne en
-    # boucle sur lui-même). Le rôle "assistant" est la façon native de dire au
-    # modèle « ça, c'est toi qui l'as dit juste avant ».
+    # et seulement elle (jamais tout son historique). Désactivable via
+    # INJECTER_DERNIER_MESSAGE, car ce rappel tend à renforcer ses tics.
     derniere = state.last_self_reply.get(channel_id)
-    if derniere:
+    if INJECTER_DERNIER_MESSAGE and derniere:
         session_snapshot.append({"role": "assistant", "content": derniere})
 
     session_snapshot.append({"role": "user", "content": user_prompt})
