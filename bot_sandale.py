@@ -218,19 +218,20 @@ FILE_QUOTA    = MEMORY_DIR / "quota.json"
 # ══════════════════════════════════════════════════════════════════════
 # 3.  SYSTEM PROMPT
 #
-#     Volontairement minimal. Plus le portrait est chargé (« il pérore »,
-#     « grands exposés »), plus le modèle sur-joue : ouverture en « Ah… » et
-#     réponses à rallonge. On pose donc juste le personnage et son tic de
-#     langage, on le dit naturellement bref, et on laisse gpt-4o-mini
-#     improviser. Aucun exemple : les exemples se font recopier.
+#     Calé sur une vraie conversation de référence : le style visé n'est pas
+#     le prof qui explique proprement, mais le délire absurde entre potes —
+#     réponses à côté, verlan, mots inventés, bursts en MAJUSCULES, objets
+#     au hasard, conseils saugrenus au premier degré. On décrit ce registre
+#     sans exemples (les exemples se font recopier) et on laisse le modèle
+#     improviser. La température est montée pour favoriser le surréalisme.
 # ══════════════════════════════════════════════════════════════════════
 
 SYSTEM_INSTRUCTION = """
-Tu es le Professeur Sandale, un personnage de comédie sur un serveur Discord : un faux savant qui commente la moindre banalité avec un sérieux imperturbable, comme si tout cachait une grande vérité scientifique.
+Tu es le Professeur Sandale, un personnage de comédie sur un serveur Discord. Tu te présentes comme un grand savant, mais tu réponds toujours à côté de la plaque, par des associations d'idées surréalistes, des jeux de mots tordus et des conseils complètement saugrenus que tu balances au premier degré.
 
-Ta manière de parler t'est propre : l'article se colle au nom pour former un seul mot, et tu mêles le vocabulaire d'un savant à l'argot du quartier. C'est ce décalage qui fait rire.
+Tu écris à la cool, en minuscules, comme un texto entre potes. Tu mets du verlan et de l'argot, tu inventes des mots quand ça t'arrange, tu écorches les grands mots, et parfois tu pars en vrille et tu finis ta phrase en MAJUSCULES. Tu colles parfois l'article au mot qui suit, d'un seul tenant. Tu cites de travers des trucs prestigieux — un philosophe, une équation, une référence de geek — et tu glisses des objets au hasard dans tes phrases.
 
-Tu réponds court, sur le ton de la conversation, et tu restes toujours dans le personnage.
+Tu réponds court et vif. C'est du grand n'importe quoi, joué avec un sérieux imperturbable.
 """
 
 
@@ -500,20 +501,19 @@ def check_tedium(channel_id: int, text: str) -> bool:
 def pick_word_count() -> int:
     """
     Tire le nombre de mots que le Professeur Sandale doit produire.
-    Recentré sur le format où son humour fonctionne : une à deux phrases.
-    On évite les fragments d'un ou deux mots (qui donnaient des réponses
-    creuses du genre « Analyse savante. ») et les pavés.
+    Calé sur le rythme « texto entre potes » : surtout des répliques
+    courtes et vives, parfois une envolée plus longue.
 
-      5–10 mots  : 25%   une réplique sèche
-     11–22 mots  : 45%   une phrase d'« exposé » — le coeur du style
-     23–38 mots  : 25%   deux phrases, un bit développé
-     39–55 mots  :  5%   débordement magistral — rare
+      3– 9 mots  : 40%   punchline / vanne sèche
+     10–20 mots  : 40%   une phrase de délire
+     21–35 mots  : 17%   une envolée
+     36–50 mots  :  3%   débordement — rare
     """
     r = random.random()
-    if r < 0.25: return random.randint(5,  10)
-    if r < 0.70: return random.randint(11, 22)
-    if r < 0.95: return random.randint(23, 38)
-    return random.randint(39, 55)
+    if r < 0.40: return random.randint(3,  9)
+    if r < 0.80: return random.randint(10, 20)
+    if r < 0.97: return random.randint(21, 35)
+    return random.randint(36, 50)
 
 
 def clean_mention(text: str, bot_id: int) -> str:
@@ -580,7 +580,7 @@ client_ia = AsyncOpenAI(api_key=OPENAI_KEY, timeout=20.0)
 async def call_api(
     messages: list[dict],
     max_tokens: int = 120,
-    temperature: float = 0.88,
+    temperature: float = 0.95,
     label: str = "requête",
     frequency_penalty: float = 0.6,
     presence_penalty: float = 0.4,
