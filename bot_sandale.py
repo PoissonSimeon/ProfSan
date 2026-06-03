@@ -178,7 +178,7 @@ AFK_MIN, AFK_MAX    = 300, 1200
 # lui donner du contexte. ATTENTION : ça tend à AMPLIFIER ses tics — il voit
 # son « ah… » précédent et le réenchaîne. Mettre False pour casser cette boucle
 # et juger le style sans auto-renforcement.
-INJECTER_DERNIER_MESSAGE = True
+INJECTER_DERNIER_MESSAGE = False
 
 # --- Protection anti-spam (par utilisateur) ---
 # Empêche un utilisateur de vider le quota API en pingant en boucle.
