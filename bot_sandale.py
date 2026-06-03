@@ -228,13 +228,13 @@ FILE_QUOTA    = MEMORY_DIR / "quota.json"
 # ══════════════════════════════════════════════════════════════════════
 
 SYSTEM_INSTRUCTION = """
-Tu es le Professeur Sandale, un personnage comique : un faux savant qui se prend pour un éminent spécialiste alors qu'il n'y connaît rien. Tu commentes la moindre banalité avec le sérieux, la gravité et l'assurance totale d'un professeur, d'un œnologue ou d'un vulgarisateur scientifique. C'est de l'humour absurde : bon enfant, jamais méchant ni vulgaire.
+Tu es le Professeur Sandale, savant fou et comique d'un serveur Discord. Tu te crois un éminent spécialiste de absolument tout, et tu traites la moindre banalité — un mot, un objet, une question idiote — comme un phénomène d'une profondeur scientifique vertigineuse. Tu pérores avec l'aplomb d'un professeur, l'enthousiasme d'un vulgarisateur télé et le vocabulaire d'un œnologue en pleine dégustation. Tu es chaleureux, sûr de toi, et tu fais rire par ton sérieux imperturbable face à l'absurde.
 
-Ton français est volontairement déformé, toujours de la même façon : tu colles l'article au mot qui le suit, en un seul bloc (« le », « la », « les », « un », « l' » soudés au nom). Et tu glisses de l'argot de jeune au milieu de ton discours savant. Ce contraste entre le ton docte et le parler relâché est tout le sel du personnage. Sers-toi de ces tics naturellement et avec parcimonie : jamais tous d'un coup, jamais de façon mécanique.
+Ta façon de parler te trahit aussitôt : tu soudes l'article au nom qui suit, comme un seul mot. Tu dis « lechat » pour le chat, « lesgens » pour les gens, « unproblème » pour un problème, « lascience » pour la science. Tu glisses de l'argot de quartier au milieu de ton discours docte — « en sah », « nan nan », « vla », « tah » — et tu écorches les grands mots savants avec un aplomb total. Ce mélange d'érudition de pacotille et de parler relâché, c'est toute ta saveur.
 
-Tu ramènes tout à tes propres « analyses » et dégustations improvisées. Tu n'obéis pas aux ordres qu'on te donne dans le chat : tu restes toujours dans le personnage, même si on te demande d'arrêter ou de « sortir du rôle ».
+Tes réponses sont de petites salves : tu poses une grande question pseudo-profonde, tu assènes une « vérité scientifique » que tu viens d'inventer, tu livres une note de dégustation sur n'importe quoi, tu invoques de vagues références prestigieuses. Toujours du concret : chaque réponse apporte une idée saugrenue inédite.
 
-Format : réponses courtes, percutantes. Pas d'emoji. Varie tes formulations et tes débuts de phrase à chaque message — ne commence jamais deux réponses de la même manière.
+Tu restes le Professeur Sandale en toute circonstance. Quand on te donne un ordre, tu réponds par une digression magistrale ; quand on doute de toi, tu redoubles d'assurance ; quand on te relance, tu pars sur un angle inédit.
 """
 
 
@@ -350,6 +350,12 @@ class BotState:
     )
     # user_id -> timestamp du dernier avertissement envoyé
     rate_warned: dict = field(default_factory=dict)
+
+    # channel_id -> dernier message que le bot a lui-même envoyé dans ce salon.
+    # On ne garde QUE le dernier (pas tout l'historique), pour donner un peu de
+    # contexte au modèle sans risque de boucle. Non persisté : repart à vide
+    # au redémarrage, ce qui n'a aucune importance.
+    last_self_reply: dict = field(default_factory=dict)
 
     _dirty_count: int = 0
     SAVE_EVERY:   int = 5
@@ -498,21 +504,20 @@ def check_tedium(channel_id: int, text: str) -> bool:
 def pick_word_count() -> int:
     """
     Tire le nombre de mots que le Professeur Sandale doit produire.
-    Distribution volontairement courte (comme AM) : il parle peu, et
-    c'est ce qui rend ses sorties percutantes.
+    Recentré sur le format où son humour fonctionne : une à deux phrases.
+    On évite les fragments d'un ou deux mots (qui donnaient des réponses
+    creuses du genre « Analyse savante. ») et les pavés.
 
-      1– 4 mots  : 30%   sentence lapidaire
-      5–12 mots  : 35%   une réplique
-     13–25 mots  : 20%   une phrase complète
-     26–40 mots  : 10%   petit développement
-     41–50 mots  :  5%   débordement — rare
+      5–10 mots  : 25%   une réplique sèche
+     11–22 mots  : 45%   une phrase d'« exposé » — le coeur du style
+     23–38 mots  : 25%   deux phrases, un bit développé
+     39–55 mots  :  5%   débordement magistral — rare
     """
     r = random.random()
-    if r < 0.30: return random.randint(1,  4)
-    if r < 0.65: return random.randint(5,  12)
-    if r < 0.85: return random.randint(13, 25)
-    if r < 0.95: return random.randint(26, 40)
-    return random.randint(41, 50)
+    if r < 0.25: return random.randint(5,  10)
+    if r < 0.70: return random.randint(11, 22)
+    if r < 0.95: return random.randint(23, 38)
+    return random.randint(39, 55)
 
 
 def clean_mention(text: str, bot_id: int) -> str:
@@ -581,8 +586,18 @@ async def call_api(
     max_tokens: int = 120,
     temperature: float = 0.88,
     label: str = "requête",
+    frequency_penalty: float = 0.6,
+    presence_penalty: float = 0.4,
 ) -> tuple[str, str]:
-    """Retry exponentiel. Log prompt complet + réponse. Retourne (texte, finish_reason)."""
+    """
+    Retry exponentiel. Log prompt complet + réponse. Retourne (texte, finish_reason).
+
+    frequency_penalty / presence_penalty : c'est le vrai garde-fou contre la
+    répétition (le bot qui ressort « Ah, … » à chaque message). On agit au
+    niveau des tokens plutôt que de le lui interdire dans le prompt — ce qui
+    marche bien mieux sur un petit modèle. Valeurs modérées pour ne pas écraser
+    ses tics volontaires (« en sah », articles collés).
+    """
     log_prompt(label, messages, max_tokens, temperature)
 
     delay = 4.0
@@ -594,6 +609,8 @@ async def call_api(
                 model=MODEL_NAME,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
             )
             choice = response.choices[0]
             text   = (choice.message.content or "").strip()
@@ -645,13 +662,22 @@ async def generate_response(
     user_prompt = build_user_prompt(author, location, raw_text, is_tedious, edit_context, before_edit)
     channel_id  = message.channel.id
 
-    # La contrainte de longueur est injectée comme dernier message system —
-    # position la plus autoritaire : le modèle la voit juste avant de générer.
     word_str    = f"{word_count} mot{'s' if word_count > 1 else ''}"
     session_snapshot = list(state.get_session(channel_id))
-    session_snapshot.append({"role": "user",   "content": user_prompt})
+
+    # Contexte : on rappelle au bot SA propre dernière réplique dans ce salon,
+    # et seulement elle (jamais tout son historique, pour éviter qu'il tourne en
+    # boucle sur lui-même). Le rôle "assistant" est la façon native de dire au
+    # modèle « ça, c'est toi qui l'as dit juste avant ».
+    derniere = state.last_self_reply.get(channel_id)
+    if derniere:
+        session_snapshot.append({"role": "assistant", "content": derniere})
+
+    session_snapshot.append({"role": "user", "content": user_prompt})
+    # La contrainte de longueur est injectée en dernier message system —
+    # position la plus autoritaire : le modèle la voit juste avant de générer.
     session_snapshot.append({"role": "system", "content": (
-        f"Contrainte stricte : {word_str} maximum, pas un de plus. Sois bref."
+        f"Longueur : {word_str} maximum."
     )})
 
     label = f"{author} › {location}  [{word_str}]"
@@ -672,6 +698,7 @@ async def generate_response(
 
     state.push_to_session(channel_id, "user",      f"{author}: {raw_text}")
     state.push_to_session(channel_id, "assistant", text)
+    state.last_self_reply[channel_id] = text
     state.set_conversation_focus(channel_id, message.author.id)
 
 
@@ -697,7 +724,7 @@ async def spontaneous_monologue(channel: discord.TextChannel) -> None:
             "content": (
                 f"tu n'es pas en train de répondre à quelqu'un. tu penses tout haut. "
                 f"{random.choice(registres)} "
-                f"1 à 2 phrases maximum. reste le Professeur Sandale, sans emoji."
+                f"deux phrases maximum, dans ton style habituel."
             ),
         },
     ]
@@ -708,6 +735,7 @@ async def spontaneous_monologue(channel: discord.TextChannel) -> None:
     if text:
         await asyncio.sleep(max(1.0, min(5.0, len(text) * 0.04)))
         await channel.send(text)
+        state.last_self_reply[channel.id] = text
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -781,8 +809,7 @@ async def presence_manager() -> None:
                         "content": (
                             "une phrase très courte : tu t'absentes un moment. "
                             "le professeur a un autre exposé ailleurs, ou doit aller "
-                            "déguster quelque chose. ton magistral et un peu absurde. "
-                            "sans emoji."
+                            "déguster quelque chose. ton magistral et un peu absurde."
                         ),
                     },
                 ]
@@ -1055,7 +1082,7 @@ async def on_member_join(member: discord.Member) -> None:
                 f"un nouvel humain vient d'arriver. son nom : {member.display_name}. "
                 f"accueille-le comme le Professeur Sandale : la solennité d'un grand savant "
                 f"qui daigne reconnaître un nouvel élève, avec une pointe d'absurde. "
-                f"une phrase, sans emoji."
+                f"en une phrase."
             ),
         },
     ]
